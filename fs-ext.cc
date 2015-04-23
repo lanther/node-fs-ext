@@ -87,7 +87,6 @@ enum
   FS_OP_SEEK,
   FS_OP_UTIME,
   FS_OP_STATVFS,
-  FS_OP_FCNTL,
 };
 
 static void EIO_After(uv_work_t *req) {
@@ -139,10 +138,6 @@ static void EIO_After(uv_work_t *req) {
         argc = 1;
 #endif
         break;
-      case FS_OP_FCNTL:
-        argc = 2;
-        argv[1] = NanNew<Number>(store_data->result);
-        break;
       default:
         assert(0 && "Unhandled op type value");
     }
@@ -165,14 +160,14 @@ static void EIO_After(uv_work_t *req) {
 static void EIO_StatVFS(uv_work_t *req) {
   store_data_t* statvfs_data = static_cast<store_data_t *>(req->data);
   statvfs_data->result = 0;
-#ifndef _WIN32  
+#ifndef _WIN32
   struct statvfs *data = &(statvfs_data->statvfs_buf);
   if (statvfs(statvfs_data->path, data)) {
     statvfs_data->result = -1;
-  	memset(data, 0, sizeof(struct statvfs));
+      memset(data, 0, sizeof(struct statvfs));
   };
 #endif
-  free(statvfs_data->path);	
+  free(statvfs_data->path);
   ;
 }
 
@@ -188,14 +183,6 @@ static void EIO_Seek(uv_work_t *req) {
     seek_data->offset = offs;
   }
 
-}
-
-static void EIO_Fcntl(uv_work_t *req) {
-  store_data_t* data = static_cast<store_data_t *>(req->data);
-  int result = data->result = fcntl(data->fd, data->oper, data->arg);
-  if (result == -1) {
-    data->error = errno;
-  }
 }
 
 #ifdef _WIN32
@@ -217,7 +204,7 @@ static int _win32_flock(int fd, int oper) {
   fh = (HANDLE)_get_osfhandle(fd);
   if (fh == (HANDLE)-1)
     return -1;
-  
+
   memset(&o, 0, sizeof(o));
 
   switch(oper) {
@@ -264,7 +251,7 @@ static void EIO_Flock(uv_work_t *req) {
 #else
   int i = flock(flock_data->fd, flock_data->oper);
 #endif
-  
+
   flock_data->result = i;
   flock_data->error = errno;
 
@@ -278,7 +265,7 @@ static NAN_METHOD(Flock) {
   }
 
   store_data_t* flock_data = new store_data_t();
-  
+
   flock_data->fs_op = FS_OP_FLOCK;
   flock_data->fd = args[0]->Int32Value();
   flock_data->oper = args[1]->Int32Value();
@@ -327,8 +314,8 @@ static inline int IsInt64(double x) {
 static NAN_METHOD(Seek) {
   NanScope();
 
-  if (args.Length() < 3 || 
-     !args[0]->IsInt32() || 
+  if (args.Length() < 3 ||
+     !args[0]->IsInt32() ||
      !args[2]->IsInt32()) {
     return THROW_BAD_ARGS;
   }
@@ -359,42 +346,7 @@ static NAN_METHOD(Seek) {
   NanReturnUndefined();
 }
 
-//  fs.fcntl(fd, cmd, [arg])
 
-static NAN_METHOD(Fcntl) {
-  NanScope();
-
-  if (args.Length() < 3 ||
-     !args[0]->IsInt32() ||
-     !args[1]->IsInt32() ||
-     !args[2]->IsInt32()) {
-    return THROW_BAD_ARGS;
-  }
-
-  int fd = args[0]->Int32Value();
-  int cmd = args[1]->Int32Value();
-  int arg = args[2]->Int32Value();
-
-  if ( ! args[3]->IsFunction()) {
-    int result = fcntl(fd, cmd, arg);
-    if (result == -1) return NanThrowError(ErrnoException(errno));
-    NanReturnValue(NanNew<Number>(result));
-  }
-
-  store_data_t* data = new store_data_t();
-
-  data->cb = new NanCallback((Local<Function>) args[3].As<Function>());
-  data->fs_op = FS_OP_FCNTL;
-  data->fd = fd;
-  data->oper = cmd;
-  data->arg = arg;
-
-  uv_work_t *req = new uv_work_t;
-  req->data = data;
-  uv_queue_work(uv_default_loop(), req, EIO_Fcntl, (uv_after_work_cb)EIO_After);
-
-  NanReturnUndefined();
-}
 
 
 static void EIO_UTime(uv_work_t *req) {
@@ -409,7 +361,7 @@ static void EIO_UTime(uv_work_t *req) {
   } else {
     utime_data->result = i;
   }
-  
+
 }
 
 // Wrapper for utime(2).
@@ -467,10 +419,10 @@ static NAN_METHOD(StatVFS) {
   }
 
   String::Utf8Value path(args[0]->ToString());
-  
+
   // Synchronous call needs much less work
   if (!args[1]->IsFunction()) {
-#ifndef _WIN32  
+#ifndef _WIN32
     struct statvfs buf;
     int ret = statvfs(*path, &buf);
     if (ret != 0) return NanThrowError(ErrnoException(errno, "statvfs", "", *path));
@@ -478,11 +430,11 @@ static NAN_METHOD(StatVFS) {
     result->Set(NanNew<String>(f_namemax_symbol), NanNew<Integer>(static_cast<uint32_t>(buf.f_namemax)));
     result->Set(NanNew<String>(f_bsize_symbol), NanNew<Integer>(static_cast<uint32_t>(buf.f_bsize)));
     result->Set(NanNew<String>(f_frsize_symbol), NanNew<Integer>(static_cast<uint32_t>(buf.f_frsize)));
-    
+
     result->Set(NanNew<String>(f_blocks_symbol), NanNew<Number>(buf.f_blocks));
     result->Set(NanNew<String>(f_bavail_symbol), NanNew<Number>(buf.f_bavail));
     result->Set(NanNew<String>(f_bfree_symbol), NanNew<Number>(buf.f_bfree));
-    
+
     result->Set(NanNew<String>(f_files_symbol), NanNew<Number>(buf.f_files));
     result->Set(NanNew<String>(f_favail_symbol), NanNew<Number>(buf.f_favail));
     result->Set(NanNew<String>(f_ffree_symbol), NanNew<Number>(buf.f_ffree));
@@ -555,7 +507,6 @@ init (Handle<Object> target)
 #endif
 
   NODE_SET_METHOD(target, "seek", Seek);
-  NODE_SET_METHOD(target, "fcntl", Fcntl);
   NODE_SET_METHOD(target, "flock", Flock);
   NODE_SET_METHOD(target, "utime", UTime);
   NODE_SET_METHOD(target, "statVFS", StatVFS);
@@ -563,11 +514,11 @@ init (Handle<Object> target)
   NanAssignPersistent(f_namemax_symbol, NanNew<String>("f_namemax"));
   NanAssignPersistent(f_bsize_symbol, NanNew<String>("f_bsize"));
   NanAssignPersistent(f_frsize_symbol, NanNew<String>("f_frsize"));
-  
+
   NanAssignPersistent(f_blocks_symbol, NanNew<String>("f_blocks"));
   NanAssignPersistent(f_bavail_symbol, NanNew<String>("f_bavail"));
   NanAssignPersistent(f_bfree_symbol, NanNew<String>("f_bfree"));
-  
+
   NanAssignPersistent(f_files_symbol, NanNew<String>("f_files"));
   NanAssignPersistent(f_favail_symbol, NanNew<String>("f_favail"));
   NanAssignPersistent(f_ffree_symbol, NanNew<String>("f_ffree"));
